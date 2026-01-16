@@ -1,4 +1,4 @@
-name: working
+name: walking
 
 on:
   schedule:
@@ -30,7 +30,7 @@ jobs:
             AES_KEY: ${{ secrets.AES_KEY }}
         run: |
           pip3 install requests pytz pycryptodome
-          sleep 1m
+          date;sleep 1m;date
           python3 main.py
 
       - name: persist tokens
