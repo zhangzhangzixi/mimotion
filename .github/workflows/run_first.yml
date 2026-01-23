@@ -2,7 +2,7 @@ name: walking
 
 on:
   schedule:
-    - cron: '49 23 * * *'
+    - cron: '39 23 * * *'
   workflow_dispatch:
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
             AES_KEY: ${{ secrets.AES_KEY }}
         run: |
           pip3 install requests pytz pycryptodome
-          date;sleep 11m;date
+          date;sleep 21m;date
           python3 main.py
 
       - name: persist tokens
