@@ -30,7 +30,7 @@ jobs:
             AES_KEY: ${{ secrets.AES_KEY }}
         run: |
           pip3 install requests pytz pycryptodome
-          date;sleep 81m;date
+          date;sleep $(($(date -d "tomorrow 00:10" +%s) - $(date +%s)));date
           python3 main.py
 
       - name: persist tokens
