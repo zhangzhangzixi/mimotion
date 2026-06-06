@@ -30,7 +30,17 @@ jobs:
             AES_KEY: ${{ secrets.AES_KEY }}
         run: |
           pip3 install requests pytz pycryptodome
-          date;sleep $(($(date -d "tomorrow 00:00" +%s) - $(date +%s) + $((RANDOM % 10 + 5))));date
+          echo "[$(date '+%F %T')] 开始等待..." >> sleep.log
+          start=$(date +%s)
+
+          target=$(( $(date -d "tomorrow 00:00" +%s) + RANDOM % 10 + 5 ))
+          now=$(date +%s)
+          delay=$((target - now))
+
+          echo "[$(date '+%F %T')] 将睡眠 ${delay} 秒" >> sleep.log
+          sleep $delay
+
+          echo "[$(date '+%F %T')] 结束等待" >> sleep.log
           python3 main.py
 
       - name: persist tokens
