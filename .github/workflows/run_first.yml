@@ -32,7 +32,7 @@ jobs:
           pip3 install requests pytz pycryptodome
 
           NOW=$(date +%s)
-          TODAY_8AM=$(date -d "today 00:00" +%s)
+          TODAY_8AM=$(date -d "tomorrow 00:00" +%s)
 
           echo "[$(date '+%F %T')] 当前时间检测"
 
