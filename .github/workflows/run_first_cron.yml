@@ -2,7 +2,7 @@ name: Adjust Walking Cron
 
 on:
   workflow_run:
-    workflows: ["walking"]   # 必须与 walking中的 name 完全一致
+    workflows: ["walking"]
     types:
       - completed
   workflow_dispatch:
@@ -10,68 +10,20 @@ on:
 jobs:
   adjust:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v3
         with:
-          token: ${{ secrets.PAT }}
-          ref: master   # 如果你的默认分支是 main，请改成 main
+          token: ${{ secrets.PAT }} #此处PAT需要申请，教程详见：README
 
-      - name: Adjust cron in walking.yml
+      - name: adjust walking cron
         run: |
-          workflow_file=".github/workflows/walking.yml"
-          if [ ! -f "$workflow_file" ]; then
-            echo "未找到 $workflow_file"
-            exit 1
-          fi
-
-          # 提取当前 cron 表达式（假设只有一行 cron）
-          current_cron=$(grep -m1 "cron:" "$workflow_file" | awk '{print $2}' | tr -d "'")
-          echo "当前 cron: $current_cron"
-          cron_minute=$(echo "$current_cron" | awk '{print $1}')
-          cron_hour=$(echo "$current_cron" | awk '{print $2}')
-
-          # 北京时间 8 点 = UTC 0 点。
-          # UTC 22:00 ~ 23:59 对应北京时间 6:00 ~ 7:59，属于“早于 8 点”
-          if [ "$cron_hour" -ge 22 ]; then
-            # 早于 8 点：推迟 1 分钟
-            new_minute=$((cron_minute + 1))
-            new_hour=$cron_hour
-            if [ $new_minute -ge 60 ]; then
-              new_minute=0
-              new_hour=$((new_hour + 1))
-              if [ $new_hour -ge 24 ]; then
-                new_hour=0
-              fi
-            fi
-            echo "早于北京时间 8 点，推迟 1 分钟"
-          else
-            # 晚于或等于 8 点：提前 8 分钟
-            new_minute=$((cron_minute - 8))
-            new_hour=$cron_hour
-            if [ $new_minute -lt 0 ]; then
-              new_minute=$((new_minute + 60))
-              new_hour=$((new_hour - 1))
-              if [ $new_hour -lt 0 ]; then
-                new_hour=23
-              fi
-            fi
-            echo "晚于或等于北京时间 8 点，提前 8 分钟"
-          fi
-
-          new_minute=$(printf "%02d" $new_minute)
-          new_hour=$(printf "%02d" $new_hour)
-          new_cron="$new_minute $new_hour * * *"
-          echo "新 cron: $new_cron"
-
-          # 替换 walking.yml 中的 cron 行
-          sed -i "s/cron: '[^']*'/cron: '$new_cron'/" "$workflow_file"
-
-      - name: Commit and push
-        run: |
+          source adjust_walking_cron.sh
+          adjust_walking_cron ${{ github.event_name }}
           git config user.name github-actions
           git config user.email github-actions@users.noreply.github.com
-          git add .github/workflows/walking.yml
-          git commit -m "adjust walking cron trigger by ${{ github.event_name }}" || echo "No changes to commit"
-          git push origin master   # 默认分支是 main 则改成 main
+          git add .
+          current=`TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S'`
+          git commit -m "[${current}] adjust walking cron trigger by ${{ github.event_name }}" || echo "No changes to commit"
+          git push origin master
