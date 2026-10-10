@@ -1,6 +1,6 @@
 #!/bin/bash
 
-WORKFLOW_FILE=".github/workflows/walking.yml"
+WORKFLOW_FILE=".github/workflows/run_first.yml"
 LOG_FILE="walking_cron_change.log"
 
 # 读取 walking.yml 中当前的 cron 表达式（分 时 * * *）
