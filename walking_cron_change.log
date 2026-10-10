@@ -1,8 +1,8 @@
-trigger by: workflow_dispatch
+trigger by: workflow_run
 current system time:
-UTC: 26-10-10 03:54:13
-北京时间: 26-10-10 11:54:13
-walking run_started_at (UTC): N/A
-walking 实际运行时间(北京时间): 11:54
-current cron (UTC): 51 22 * * *
-next cron (UTC):    43 22 * * *
+UTC: 26-10-10 07:06:46
+北京时间: 26-10-10 15:06:46
+walking run_started_at (UTC): 2026-10-10T07:05:29Z
+walking 实际运行时间(北京时间): 15:05
+current cron (UTC): 43 22 * * *
+next cron (UTC):    35 22 * * *
