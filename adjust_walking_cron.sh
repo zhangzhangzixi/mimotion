@@ -8,12 +8,40 @@ function read_walking_cron {
   grep -m1 "cron:" "$WORKFLOW_FILE" | awk '{print substr($0, index($0,$3))}' | tr -d "'" | xargs
 }
 
-# 根据当前 cron 计算新 cron，逼近北京时间8点
-# 规则：晚于8点 → 提前8分钟；早于8点 → 推迟1分钟
+# 获取 walking 实际运行时间（北京时间的小时和分钟）
+# 参数：run_started_at ISO8601 字符串（可为空）
+# 输出："<bj_hour> <bj_minute>"
+function get_actual_bj_time {
+  local run_started_at=$1
+  local utc_hour
+  local utc_minute
+
+  if [ -n "$run_started_at" ] && [ "$run_started_at" != "null" ]; then
+    utc_hour=$(date -d "$run_started_at" -u '+%H')
+    utc_minute=$(date -d "$run_started_at" -u '+%M')
+  else
+    # 手动触发等场景没有 workflow_run 信息，退化为当前时间
+    utc_hour=$(TZ=UTC date '+%H')
+    utc_minute=$(TZ=UTC date '+%M')
+  fi
+
+  utc_hour=$((10#$utc_hour))
+  utc_minute=$((10#$utc_minute))
+
+  # 北京时间 = UTC + 8（无夏令时）
+  local bj_hour=$(( (utc_hour + 8) % 24 ))
+  local bj_minute=$utc_minute
+
+  echo "$bj_hour $bj_minute"
+}
+
+# 根据 walking 实际运行时间计算新 cron
+# 参数：cron_str  actual_bj_hour  actual_bj_minute
 function calc_next_cron {
   local cron_str=$1
+  local actual_bj_hour=$2
+  local actual_bj_minute=$3
 
-  # 校验格式
   if ! echo "$cron_str" | grep -Eq '^[0-9]{1,2} [0-9]{1,2} \* \* \*$'; then
     echo "cron 格式不正确: [$cron_str]" >&2
     return 1
@@ -30,9 +58,12 @@ function calc_next_cron {
   local new_hour
   local reason
 
-  # 北京时间8点 = UTC 0点
-  # UTC 22:00 ~ 23:59 → 北京时间 6:00 ~ 7:59，属于"早于8点"
-  if [ "$cron_hour" -ge 22 ]; then
+  # 实际运行时间（北京时间）转成分钟数，与 8:00（480）比较
+  local actual_total=$((actual_bj_hour * 60 + actual_bj_minute))
+  local target_total=$((8 * 60))
+
+  if [ $actual_total -lt $target_total ]; then
+    # 实际早于 8 点：推迟 1 分钟
     new_minute=$((cron_minute + 1))
     new_hour=$cron_hour
     if [ $new_minute -ge 60 ]; then
@@ -42,8 +73,9 @@ function calc_next_cron {
         new_hour=0
       fi
     fi
-    reason="早于北京时间 8 点，推迟 1 分钟"
+    reason="实际运行早于北京时间 8 点，推迟 1 分钟"
   else
+    # 实际晚于或等于 8 点：提前 8 分钟
     new_minute=$((cron_minute - 8))
     new_hour=$cron_hour
     if [ $new_minute -lt 0 ]; then
@@ -53,7 +85,7 @@ function calc_next_cron {
         new_hour=23
       fi
     fi
-    reason="晚于或等于北京时间 8 点，提前 8 分钟"
+    reason="实际运行晚于或等于北京时间 8 点，提前 8 分钟"
   fi
 
   new_minute=$(printf "%02d" $new_minute)
@@ -63,7 +95,7 @@ function calc_next_cron {
   echo "$new_minute $new_hour * * *"
 }
 
-# 将新的 cron 写回 walking.yml
+# 将新 cron 写回 walking.yml
 function update_walking_cron {
   local new_cron=$1
   sed -i "s|cron: '[^']*'|cron: '$new_cron'|" "$WORKFLOW_FILE"
@@ -72,6 +104,7 @@ function update_walking_cron {
 # 主入口
 function adjust_walking_cron {
   local event_name=$1
+  local run_started_at=$2
 
   if [ ! -f "$WORKFLOW_FILE" ]; then
     echo "未找到 $WORKFLOW_FILE"
@@ -82,8 +115,16 @@ function adjust_walking_cron {
   current_cron=$(read_walking_cron)
   echo "当前 cron: [$current_cron]"
 
+  local actual_time
+  actual_time=$(get_actual_bj_time "$run_started_at")
+  local actual_bj_hour
+  local actual_bj_minute
+  actual_bj_hour=$(echo "$actual_time" | awk '{print $1}')
+  actual_bj_minute=$(echo "$actual_time" | awk '{print $2}')
+  echo "walking 实际运行时间（北京时间）: $(printf "%02d:%02d" $actual_bj_hour $actual_bj_minute)"
+
   local new_cron
-  if ! new_cron=$(calc_next_cron "$current_cron"); then
+  if ! new_cron=$(calc_next_cron "$current_cron" "$actual_bj_hour" "$actual_bj_minute"); then
     echo "计算新 cron 失败，终止"
     exit 1
   fi
@@ -100,6 +141,8 @@ function adjust_walking_cron {
     echo "current system time:"
     TZ='UTC' date "+%y-%m-%d %H:%M:%S" | xargs -I {} echo "UTC: {}"
     TZ='Asia/Shanghai' date "+%y-%m-%d %H:%M:%S" | xargs -I {} echo "北京时间: {}"
+    echo "walking run_started_at (UTC): ${run_started_at:-N/A}"
+    echo "walking 实际运行时间(北京时间): $(printf "%02d:%02d" $actual_bj_hour $actual_bj_minute)"
     echo "current cron (UTC): $current_cron"
     echo "next cron (UTC):    $new_cron"
   } > "$LOG_FILE"
