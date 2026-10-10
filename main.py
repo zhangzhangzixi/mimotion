@@ -15,6 +15,11 @@ from util.aes_help import encrypt_data, decrypt_data
 import util.zepp_helper as zeppHelper
 import util.push_util as push_util
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+except ImportError:
+    pass
 
 # 获取默认值转int
 def get_int_value_default(_config: dict, _key, default):
@@ -119,6 +124,8 @@ class MiMotionRunner:
         else:
             self.is_phone = False
         self.user = user
+        # self.fake_ip_addr = fake_ip()
+        # self.log_str += f"创建虚拟ip地址：{self.fake_ip_addr}\n"
 
     # 登录
     def login(self):
@@ -165,6 +172,7 @@ class MiMotionRunner:
         if access_token is None:
             self.log_str += "登录获取accessToken失败：%s" % msg
             return None
+        # print(f"device_id:{self.device_id} isPhone: {self.is_phone}")
         login_token, app_token, user_id, msg = zeppHelper.grant_login_tokens(access_token, self.device_id,
                                                                              self.is_phone)
         if login_token is None:
@@ -196,7 +204,17 @@ class MiMotionRunner:
 
         step = str(random.randint(min_step, max_step))
         self.log_str += f"已设置为随机步数范围({min_step}~{max_step}) 随机值:{step}\n"
-        ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
+
+        user_token_info = user_tokens.get(self.user, {})
+        bound_device_id = user_token_info.get("bound_device_id")
+        if not bound_device_id and self.user_id:
+            bound_device_id = zeppHelper.get_user_device_id(app_token, self.user_id)
+            if bound_device_id:
+                user_token_info["bound_device_id"] = bound_device_id
+                user_tokens[self.user] = user_token_info
+                self.log_str += f"查找到已绑定设备ID: {bound_device_id}\n"
+
+        ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id, device_id=bound_device_id)
         return f"修改步数（{step}）[" + msg + "]", ok
 
 
@@ -296,48 +314,58 @@ if __name__ == "__main__":
             user_tokens = prepare_user_tokens()
         else:
             print("AES_KEY未设置或者无效 无法使用加密保存功能")
-    if os.environ.__contains__("CONFIG") is False:
-        print("未配置CONFIG变量，无法执行")
-        exit(1)
-    else:
-        # region 初始化参数
-        config = dict()
+    config = dict()
+    if "CONFIG" in os.environ:
         try:
             config = dict(json.loads(os.environ.get("CONFIG")))
         except:
             print("CONFIG格式不正确，请检查Secret配置，请严格按照JSON格式：使用双引号包裹字段和值，逗号不能多也不能少")
             traceback.print_exc()
             exit(1)
-        # 创建推送配置对象
-        push_config = push_util.PushConfig(
-            push_plus_token=config.get('PUSH_PLUS_TOKEN'),
-            push_plus_hour=config.get('PUSH_PLUS_HOUR'),
-            push_plus_max=get_int_value_default(config, 'PUSH_PLUS_MAX', 30),
-            push_wechat_webhook_key=config.get('PUSH_WECHAT_WEBHOOK_KEY'),
-            telegram_bot_token=config.get('TELEGRAM_BOT_TOKEN'),
-            telegram_chat_id=config.get('TELEGRAM_CHAT_ID')
-        )
-        sleep_seconds = config.get('SLEEP_GAP')
-        if sleep_seconds is None or sleep_seconds == '':
-            sleep_seconds = 5
-        sleep_seconds = float(sleep_seconds)
-        users = config.get('USER')
-        passwords = config.get('PWD')
-        if users is None or passwords is None:
-            print("未正确配置账号密码，无法执行")
-            exit(1)
+    elif "USER" in os.environ and "PWD" in os.environ:
+        config = {
+            "USER": os.environ.get("USER"),
+            "PWD": os.environ.get("PWD"),
+            "MIN_STEP": os.environ.get("MIN_STEP", "18000"),
+            "MAX_STEP": os.environ.get("MAX_STEP", "25000"),
+            "PUSH_PLUS_TOKEN": os.environ.get("PUSH_PLUS_TOKEN", ""),
+            "PUSH_PLUS_HOUR": os.environ.get("PUSH_PLUS_HOUR", ""),
+            "PUSH_PLUS_MAX": os.environ.get("PUSH_PLUS_MAX", "30"),
+            "PUSH_WECHAT_WEBHOOK_KEY": os.environ.get("PUSH_WECHAT_WEBHOOK_KEY", ""),
+            "TELEGRAM_BOT_TOKEN": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+            "TELEGRAM_CHAT_ID": os.environ.get("TELEGRAM_CHAT_ID", ""),
+            "SLEEP_GAP": os.environ.get("SLEEP_GAP", "5"),
+            "USE_CONCURRENT": os.environ.get("USE_CONCURRENT", "False")
+        }
+    else:
+        print("未配置CONFIG或USER/PWD环境变量，无法执行。请在本地创建.env文件或配置环境变量。")
+        exit(1)
 
-        min_step, max_step = get_min_max_by_time()
-        # 【新增】配置级兜底校验，防止 MIN_STEP > MAX_STEP
-        if min_step > max_step:
-            print(f"警告: 计算后 MIN_STEP({min_step}) > MAX_STEP({max_step})，已自动交换")
-            min_step, max_step = max_step, min_step
-
-        use_concurrent = config.get('USE_CONCURRENT')
-        if use_concurrent is not None and use_concurrent == 'True':
-            use_concurrent = True
-        else:
-            print(f"多账号执行间隔：{sleep_seconds}")
-            use_concurrent = False
-        # endregion
-        execute()
+    # region 初始化参数
+    # 创建推送配置对象
+    push_config = push_util.PushConfig(
+        push_plus_token=config.get('PUSH_PLUS_TOKEN'),
+        push_plus_hour=config.get('PUSH_PLUS_HOUR'),
+        push_plus_max=get_int_value_default(config, 'PUSH_PLUS_MAX', 30),
+        push_wechat_webhook_key=config.get('PUSH_WECHAT_WEBHOOK_KEY'),
+        telegram_bot_token=config.get('TELEGRAM_BOT_TOKEN'),
+        telegram_chat_id=config.get('TELEGRAM_CHAT_ID')
+    )
+    sleep_seconds = config.get('SLEEP_GAP')
+    if sleep_seconds is None or sleep_seconds == '':
+        sleep_seconds = 5
+    sleep_seconds = float(sleep_seconds)
+    users = config.get('USER')
+    passwords = config.get('PWD')
+    if users is None or passwords is None:
+        print("未正确配置账号密码，无法执行")
+        exit(1)
+    min_step, max_step = get_min_max_by_time()
+    use_concurrent = config.get('USE_CONCURRENT')
+    if use_concurrent is not None and use_concurrent == 'True':
+        use_concurrent = True
+    else:
+        print(f"多账号执行间隔：{sleep_seconds}")
+        use_concurrent = False
+    # endregion
+    execute()
